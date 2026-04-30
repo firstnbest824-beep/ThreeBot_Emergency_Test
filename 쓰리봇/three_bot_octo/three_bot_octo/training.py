@@ -27,6 +27,13 @@ import time
 from .octo_model import create_three_bot_octo_model, count_parameters
 
 
+try:
+    # TensorFlow only feeds data here; keep the GPU memory available for JAX/XLA.
+    tf.config.set_visible_devices([], 'GPU')
+except RuntimeError:
+    pass
+
+
 @struct.dataclass
 class TrainConfig:
     """Training configuration.
@@ -507,7 +514,7 @@ def train(config: TrainConfig):
     state = create_train_state(config, init_rng, steps_per_epoch)
     
     # 4. 체크포인트 저장을 위한 디텍토리 준비
-    ckpt_dir = Path(config.checkpoint_dir)
+    ckpt_dir = Path(config.checkpoint_dir).expanduser().resolve()
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     
     # 5. 반복 학습 시작
