@@ -72,10 +72,10 @@ class ThreeBotActionHead(nn.Module):
             actions: [B, 5] (배치 크기, 5) 형태의 액션 값.
                      순서대로 [X1, Y1, X2, Y2, Z] 입니다.
         """
-        # Mean pooling over sequence dimension
-        # 시퀀스 차원(Sequence dim)에 대해 평균을 내서 하나의 벡터로 압축합니다.
-        # [B, Seq, D] -> [B, D]
-        h = jnp.mean(transformer_output, axis=1)
+        # Use the same policy token as the training loss path. The checkpoint was
+        # optimized through this final-token representation, so deployment must
+        # not switch to mean pooling at inference time.
+        h = transformer_output[:, -1, :]
         
         # 특징 추출기 통과
         feat = self.feature_extractor(h)  # [B, 256]
@@ -110,9 +110,8 @@ class ThreeBotActionHead(nn.Module):
         Loss Calculation (손실 함수 계산 - 학습용)
         """
         
-        # Loss uses the latest fused token as the compact policy state. Inference
-        # still mean-pools all tokens in `__call__`; if behavior diverges later,
-        # make both paths use the same pooling strategy intentionally.
+        # Keep this representation synchronized with `__call__` so validation
+        # loss and deployed predictions measure the same policy.
         h = transformer_output[:, -1, :] 
         feat = self.feature_extractor(h)
         

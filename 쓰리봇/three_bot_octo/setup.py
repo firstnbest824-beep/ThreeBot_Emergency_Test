@@ -22,6 +22,7 @@ setup(
         'console_scripts': [
             'octo_inference_node = three_bot_octo.octo_inference_node:main',
             'octo_trainer = three_bot_octo.training:main',
+            'octo_replay_episode = three_bot_octo.replay_episode:main',
         ],
     },
 )

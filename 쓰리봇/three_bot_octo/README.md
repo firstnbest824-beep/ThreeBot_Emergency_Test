@@ -79,6 +79,26 @@ ros2 run three_bot_octo octo_inference_node \
   -p model_size:=small
 ```
 
+## Offline Episode Replay
+
+Compare a recorded episode's human action labels with model predictions before
+running on hardware:
+
+```bash
+PYTHONPATH=쓰리봇/three_bot_octo python3 -m three_bot_octo.replay_episode \
+  --checkpoint training_outputs/octo_full_processed_npy_20260430_115347/best_available_checkpoint_epoch98 \
+  --split val \
+  --episode_index 0 \
+  --max_steps 300
+```
+
+Outputs are written to `training_outputs/replays/`:
+
+- `replay.mp4`: three-camera replay with GT and predicted action bars.
+- `action_plot.png`: per-axis time-series plot.
+- `actions.csv`: raw GT, prediction, and error values.
+- `metrics.txt`: MAE/RMSE/sign-accuracy summary.
+
 ## Core Flow
 
 1. `vision_encoder.py` turns three synchronized cameras into visual tokens.
