@@ -1,0 +1,57 @@
+# Local editor / Codex state
+.codex
+.vscode/
+.idea/
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ROS / colcon build artifacts
+build/
+install/
+log/
+
+# Training data stays local. These directories are too large and may contain
+# raw robot recordings, derived datasets, checkpoints, or credentials.
+training_data/**
+!training_data/
+!training_data/README.md
+
+training_outputs/**
+!training_outputs/
+!training_outputs/README.md
+!training_outputs/pilot_processed_npy/
+!training_outputs/pilot_processed_npy/README.md
+
+label_data/**
+
+# Legacy recovery dumps are kept on disk for reference, not for public source.
+threebot_collected/trash_recovery/
+
+# Large model / dataset / recording formats
+*.bag
+*.db3
+*.mcap
+*.npy
+*.npz
+*.pkl
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+*.mp4
+*.avi
+*.mov
+
+# Secrets
+credentials.json
+*.pem
+*.key
+*.env
+.env*

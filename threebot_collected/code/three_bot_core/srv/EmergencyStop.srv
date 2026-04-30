@@ -1,0 +1,4 @@
+string reason  # Reason for emergency stop request
+---
+bool success
+string message  # Response message

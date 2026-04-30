@@ -1,0 +1,8 @@
+/Debug/
+Debug/
+Release/
+.settings/
+.mxproject
+*.launch
+Core/host_test/
+**/host_test/
