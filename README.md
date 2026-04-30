@@ -8,27 +8,27 @@ The public repository should contain source code and documentation only. Raw bag
 
 ```text
 ThreeBot_Emergency_Test/
-  README.md                         # Project overview and operating guide
-  .gitignore                        # Public-repo safety rules
-  쓰리봇/three_bot_octo/             # Main JAX/Flax + ROS 2 policy package
-  threebot_collected/code/           # Recovered/collected ROS 2 package sources
+  README.md                          # Project overview and operating guide
+  .gitignore                         # Public-repo safety rules
+  쓰리봇/three_bot_octo/              # Main JAX/Flax + ROS 2 policy package
+  threebot_collected/code/           # ROS 2 control, logging, core, and support packages
   threebot_collected/firmware/       # STM32 firmware source for the robot side
-  training_data/                    # Local-only training inputs
-  training_outputs/                 # Local-only checkpoints and run outputs
-  label_data/                       # Local-only small recovered label samples
+  training_data/                     # Local-only training inputs
+  training_outputs/                  # Local-only checkpoints and run outputs
+  label_data/                        # Local-only small recovered label samples
 ```
 
 ## Data Status
 
 ```text
 training_data/
-  raw_bags/              # 83 original ROS 2 bag episodes, about 211G
-  processed_episodes/    # 83 processed .npy episodes used by current training, about 35G
-  rlds/                  # Optional generated RLDS/TFDS dataset output
-  legacy_vla_misc/       # Old VLA scripts/artifacts; includes a corrupt legacy dataset file
+  raw_bags/               # 83 original ROS 2 bag episodes, about 211G
+  processed_episodes/     # 83 processed .npy episodes used by current training, about 35G
+  rlds/                   # Optional generated RLDS/TFDS dataset output
+  legacy_vla_misc/        # Old VLA scripts/artifacts; includes a corrupt legacy dataset file
 
 training_outputs/
-  checkpoints/                 # Default output path for new training runs
+  checkpoints/                  # Default output path for new training runs
   pilot_processed_npy/          # First successful one-step pilot training run
   legacy_vla_checkpoints/       # Older VLA checkpoints
   legacy_vla_training_log.txt   # Older training log
@@ -37,7 +37,9 @@ training_outputs/
 
 The current valid training input is `training_data/processed_episodes/*.npy`. The old `legacy_vla_misc/vla_dataset_final.npy` is preserved for reference, but it failed NumPy loading during inspection and should not be treated as the active dataset.
 
-## Main Code Path
+## Main Code Paths
+
+### Policy and Training
 
 ```text
 쓰리봇/three_bot_octo/three_bot_octo/
@@ -48,6 +50,16 @@ The current valid training input is `training_data/processed_episodes/*.npy`. Th
   gaussian_action_head.py  # Uncertainty-aware Gaussian head for shared Z
   rlds_converter.py        # ROS 2 bag to RLDS/TFDS converter
   octo_inference_node.py   # ROS 2 real-time inference node
+```
+
+### ROS 2 Runtime Packages
+
+```text
+threebot_collected/code/
+  three_bot_control/       # Teleop, mux, safety filter, motor bridge
+  three_bot_core/          # Message, service, and launch definitions
+  three_bot_logging/       # Episodic synchronized data logger
+  three_bot_perception/    # Perception package skeleton
 ```
 
 ## Training Flow
@@ -90,7 +102,7 @@ python3 -m three_bot_octo.rlds_converter \
 Do commit:
 
 - Source code under `쓰리봇/three_bot_octo/`.
-- Recovered source packages under `threebot_collected/code/` if needed.
+- ROS 2 source packages under `threebot_collected/code/`.
 - Firmware source under `threebot_collected/firmware/`.
 - README files and lightweight documentation.
 
@@ -104,9 +116,8 @@ Do not commit:
 - `training_outputs/pilot_processed_npy/checkpoints/`
 - Any `credentials.json`, model checkpoint, `.npy`, `.db3`, or video file.
 
-## GitHub Upload Note
+## GitHub Note
 
-This workspace is initialized as a local git repository on branch `main`, and the GitHub CLI (`gh`) is not installed in the current environment. The local project is prepared for a public repository, but the actual GitHub repository creation and push require either:
+This workspace is connected to the GitHub repository `firstnbest824-beep/ThreeBot_Emergency_Test` on branch `main`.
 
-- `gh` installed and authenticated with `gh auth login`, or
-- a GitHub remote URL created manually and added with `git remote add origin <url>`.
+Standard git push and pull workflows are sufficient for publishing source changes. GitHub CLI is optional, not required.
