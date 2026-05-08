@@ -23,6 +23,8 @@ setup(
             'octo_inference_node = three_bot_octo.octo_inference_node:main',
             'octo_trainer = three_bot_octo.training:main',
             'octo_replay_episode = three_bot_octo.replay_episode:main',
+            'octo_data_quality = three_bot_octo.data_quality_report:main',
+            'octo_remap_z_labels = three_bot_octo.remap_z_labels:main',
         ],
     },
 )
