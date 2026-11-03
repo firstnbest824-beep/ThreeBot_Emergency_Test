@@ -20,6 +20,7 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 import numpy as np
 from typing import Dict, Tuple, Optional, Callable, Iterable, List
+from collections import defaultdict
 from pathlib import Path
 import glob
 import time
@@ -67,6 +68,14 @@ class TrainConfig:
     steps_per_epoch: int = 1000          # 학습률 스케줄 계산용 근사 스텝 수
     max_train_steps_per_epoch: Optional[int] = None # 디버그/파일럿 학습용 제한
     max_val_steps: Optional[int] = None   # 디버그/파일럿 검증용 제한
+    use_balanced_sampler: bool = False
+    balanced_zero_ratio: float = 0.30
+    balanced_xy_only_ratio: float = 0.45
+    balanced_z_only_ratio: float = 0.20
+    balanced_xy_z_ratio: float = 0.05
+    balanced_samples_per_epoch: Optional[int] = None
+    balanced_threshold: float = 1e-6
+    balanced_seed: int = 42
     
     # Checkpointing (체크포인트 저장 설정)
     checkpoint_dir: str = 'training_outputs/checkpoints' # 저장 디렉토리
@@ -401,6 +410,94 @@ def processed_npy_generator(file_list: Iterable[str]):
             print(f"Error loading {file_path}: {e}")
 
 
+def _format_processed_npy_step(step: dict) -> dict:
+    return {
+        'observations': {
+            'gripper1': np.expand_dims(step['img_left'].astype(np.float32) / 255.0, axis=0),
+            'gripper2': np.expand_dims(step['img_right'].astype(np.float32) / 255.0, axis=0),
+            'global': np.expand_dims(step['img_global'].astype(np.float32) / 255.0, axis=0),
+        },
+        'proprioception': np.zeros((10,), dtype=np.float32),
+        'actions': step['action'].astype(np.float32),
+    }
+
+
+def _classify_action_bucket(action: np.ndarray, threshold: float) -> str:
+    active = np.abs(action) > threshold
+    xy_active = bool(np.any(active[:4]))
+    z_active = bool(active[4])
+    if xy_active and z_active:
+        return 'xy_z'
+    if xy_active:
+        return 'xy_only'
+    if z_active:
+        return 'z_only'
+    return 'zero'
+
+
+def _build_balanced_npy_index(file_list: List[str], threshold: float):
+    buckets = {
+        'zero': [],
+        'xy_only': [],
+        'z_only': [],
+        'xy_z': [],
+    }
+    total_steps = 0
+
+    for file_id, file_path in enumerate(file_list):
+        episode = np.load(file_path, allow_pickle=True)
+        for step_idx, step in enumerate(episode):
+            bucket = _classify_action_bucket(step['action'].astype(np.float32), threshold)
+            buckets[bucket].append((file_id, step_idx))
+            total_steps += 1
+
+    return buckets, total_steps
+
+
+def balanced_processed_npy_generator(
+    file_list: List[str],
+    buckets: Dict[str, List[Tuple[int, int]]],
+    samples_per_pass: int,
+    ratios: Dict[str, float],
+    seed: int,
+):
+    """Yield a balanced train stream without changing the validation distribution."""
+    rng = np.random.default_rng(seed)
+    bucket_names = ('zero', 'xy_only', 'z_only', 'xy_z')
+    available = [name for name in bucket_names if buckets[name]]
+    ratio_sum = sum(ratios[name] for name in available)
+    if ratio_sum <= 0.0:
+        raise ValueError("balanced sampler ratios must sum to a positive value")
+
+    counts = {}
+    remaining = samples_per_pass
+    for name in available[:-1]:
+        count = int(round(samples_per_pass * ratios[name] / ratio_sum))
+        counts[name] = min(count, remaining)
+        remaining -= counts[name]
+    counts[available[-1]] = remaining
+
+    selected_by_file = defaultdict(list)
+    for name in available:
+        bucket_items = buckets[name]
+        draw_count = counts.get(name, 0)
+        if draw_count <= 0:
+            continue
+        choices = rng.integers(0, len(bucket_items), size=draw_count)
+        for choice in choices:
+            file_id, step_idx = bucket_items[int(choice)]
+            selected_by_file[file_id].append(step_idx)
+
+    file_ids = list(selected_by_file.keys())
+    rng.shuffle(file_ids)
+    for file_id in file_ids:
+        episode = np.load(file_list[file_id], allow_pickle=True)
+        step_indices = selected_by_file[file_id]
+        rng.shuffle(step_indices)
+        for step_idx in step_indices:
+            yield _format_processed_npy_step(episode[step_idx])
+
+
 def load_processed_npy_dataset(config: TrainConfig, split: str = 'train') -> tf.data.Dataset:
     """Create a TensorFlow dataset from local processed episode files."""
     file_list: List[str] = sorted(glob.glob(config.dataset_path))
@@ -426,6 +523,41 @@ def load_processed_npy_dataset(config: TrainConfig, split: str = 'train') -> tf.
         'proprioception': tf.TensorSpec(shape=(10,), dtype=tf.float32),
         'actions': tf.TensorSpec(shape=(5,), dtype=tf.float32),
     }
+
+    if split == 'train' and config.use_balanced_sampler:
+        buckets, total_steps = _build_balanced_npy_index(
+            file_list,
+            threshold=config.balanced_threshold,
+        )
+        samples_per_pass = config.balanced_samples_per_epoch or total_steps
+        ratios = {
+            'zero': config.balanced_zero_ratio,
+            'xy_only': config.balanced_xy_only_ratio,
+            'z_only': config.balanced_z_only_ratio,
+            'xy_z': config.balanced_xy_z_ratio,
+        }
+        print("Balanced sampler enabled")
+        print(f"  samples/pass: {samples_per_pass}")
+        for name in ('zero', 'xy_only', 'z_only', 'xy_z'):
+            print(f"  {name}: source={len(buckets[name])}, target_ratio={ratios[name]:.2f}")
+
+        generator_calls = {'count': 0}
+
+        def make_balanced_generator():
+            seed = config.balanced_seed + generator_calls['count']
+            generator_calls['count'] += 1
+            return balanced_processed_npy_generator(
+                file_list=file_list,
+                buckets=buckets,
+                samples_per_pass=samples_per_pass,
+                ratios=ratios,
+                seed=seed,
+            )
+
+        return tf.data.Dataset.from_generator(
+            make_balanced_generator,
+            output_signature=output_signature,
+        )
 
     return tf.data.Dataset.from_generator(
         lambda: processed_npy_generator(file_list),
@@ -579,6 +711,14 @@ def main(args=None):
     parser.add_argument('--steps_per_epoch', type=int, default=1000)
     parser.add_argument('--max_train_steps_per_epoch', type=int, default=None)
     parser.add_argument('--max_val_steps', type=int, default=None)
+    parser.add_argument('--use_balanced_sampler', action='store_true')
+    parser.add_argument('--balanced_zero_ratio', type=float, default=0.30)
+    parser.add_argument('--balanced_xy_only_ratio', type=float, default=0.45)
+    parser.add_argument('--balanced_z_only_ratio', type=float, default=0.20)
+    parser.add_argument('--balanced_xy_z_ratio', type=float, default=0.05)
+    parser.add_argument('--balanced_samples_per_epoch', type=int, default=None)
+    parser.add_argument('--balanced_threshold', type=float, default=1e-6)
+    parser.add_argument('--balanced_seed', type=int, default=42)
     args = parser.parse_args(args=args)
 
     # 메인 실행 환경 및 설정
@@ -594,6 +734,14 @@ def main(args=None):
         steps_per_epoch=args.steps_per_epoch,
         max_train_steps_per_epoch=args.max_train_steps_per_epoch,
         max_val_steps=args.max_val_steps,
+        use_balanced_sampler=args.use_balanced_sampler,
+        balanced_zero_ratio=args.balanced_zero_ratio,
+        balanced_xy_only_ratio=args.balanced_xy_only_ratio,
+        balanced_z_only_ratio=args.balanced_z_only_ratio,
+        balanced_xy_z_ratio=args.balanced_xy_z_ratio,
+        balanced_samples_per_epoch=args.balanced_samples_per_epoch,
+        balanced_threshold=args.balanced_threshold,
+        balanced_seed=args.balanced_seed,
         mixed_precision=True,
         gradient_checkpointing=True
     )
